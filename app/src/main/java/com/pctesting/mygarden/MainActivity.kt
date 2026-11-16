@@ -93,7 +93,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
     var translatingId by mutableStateOf<String?>(null)
         private set
 
-    fun setHindi(on: Boolean) {
+    fun chooseHindi(on: Boolean) {
         hindi = on
         settings.hindi = on
     }
@@ -105,7 +105,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
         val key = settings.apiKey
         if (key.isBlank()) {
             notice = "Add your Anthropic API key in Settings to translate."
-            setHindi(false)
+            chooseHindi(false)
             return
         }
         val model = settings.model
@@ -124,7 +124,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
                 }
                 is TranslateResult.Failed -> {
                     notice = "Couldn't translate: ${result.message}"
-                    setHindi(false)
+                    chooseHindi(false)
                 }
             }
         }

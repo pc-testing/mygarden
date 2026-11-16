@@ -456,7 +456,7 @@ private fun ResultView(
         ) {
             Text(L(hi, "IDENTIFIED", "पहचाना गया"), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Green)
             NameBlock(plant, hi, 30)
-            LangToggle(hi, vm.translatingId == plant.id) { vm.setHindi(it) }
+            LangToggle(hi, vm.translatingId == plant.id) { vm.chooseHindi(it) }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 StatCard(
                     L(hi, "Sunlight", "धूप"), plant.show("sunlight", hi), plant.show("sunlightNote", hi),
@@ -567,7 +567,7 @@ private fun DetailsScreen(vm: AppVm, id: String) {
                 Spacer(Modifier.width(14.dp))
                 NameBlock(plant, hi, 26)
             }
-            LangToggle(hi, vm.translatingId == plant.id) { vm.setHindi(it) }
+            LangToggle(hi, vm.translatingId == plant.id) { vm.chooseHindi(it) }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 StatCard(
                     L(hi, "Sunlight", "धूप"), plant.show("sunlight", hi), plant.show("sunlightNote", hi),
