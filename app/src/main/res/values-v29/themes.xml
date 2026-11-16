@@ -1,6 +1,6 @@
 <resources>
     <style name="Theme.MyGarden" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">#F3F5F0</item>
+        <item name="android:windowBackground">#F5F6F8</item>
         <!-- Keep the phone's dark mode from inverting the app's colours. -->
         <item name="android:forceDarkAllowed">false</item>
     </style>

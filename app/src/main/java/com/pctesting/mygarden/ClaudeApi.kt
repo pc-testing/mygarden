@@ -40,7 +40,7 @@ fun Plant.field(key: String): String = when (key) {
 object ClaudeApi {
     private const val ENDPOINT = "https://api.anthropic.com/v1/messages"
 
-    /** Region used for local plant names. Fixed for now; a region setting can come later. */
+    /** Region used for local plant names. Fixed for now and not shown in the app; a region setting can come later. */
     const val REGION = "Delhi/NCR, India"
 
     private val IDENTIFY_PROMPT = """

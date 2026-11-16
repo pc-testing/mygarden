@@ -34,17 +34,20 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -82,30 +85,33 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
-private val Green = Color(0xFF1F6B3A)
-private val Bg = Color(0xFFF3F5F0)
-private val Ink = Color(0xFF17201A)
-private val Muted = Color(0xFF4D5B51)
-private val Line = Color(0xFFE1E6DE)
-private val PhotoBg = Color(0xFFCFE3D2)
+// Navy & Saffron theme
+private val Navy = Color(0xFF1F2F5C)      // filled buttons
+private val Saffron = Color(0xFFA85400)   // highlights, links, outlined buttons
+private val Bg = Color(0xFFF5F6F8)
+private val Ink = Color(0xFF141B2D)
+private val Muted = Color(0xFF525A6B)
+private val Line = Color(0xFFE0E3EA)
+private val Tonal = Color(0xFFE9ECF2)
+private val PhotoBg = Color(0xFFDDE3EE)
 
 private val AppColors = lightColorScheme(
-    primary = Green,
+    primary = Navy,
     onPrimary = Color.White,
-    secondaryContainer = Color(0xFFDCEBDD),
+    secondaryContainer = Tonal,
     onSecondaryContainer = Ink,
     background = Bg,
     onBackground = Ink,
     surface = Bg,
     onSurface = Ink,
-    surfaceVariant = Color(0xFFEEF1EB),
+    surfaceVariant = Tonal,
     onSurfaceVariant = Muted,
-    outline = Color(0xFFC5CCC2),
+    outline = Color(0xFFC3C8D3),
     surfaceContainerLowest = Color.White,
     surfaceContainerLow = Color.White,
     surfaceContainer = Color.White,
     surfaceContainerHigh = Color.White,
-    surfaceContainerHighest = Color(0xFFEEF1EB),
+    surfaceContainerHighest = Tonal,
 )
 
 @Composable
@@ -333,7 +339,7 @@ private fun GardenScreen(vm: AppVm) {
             },
             icon = { Icon(Icons.Filled.Add, contentDescription = null) },
             text = { Text("Scan a plant", fontWeight = FontWeight.Bold) },
-            containerColor = Green,
+            containerColor = Navy,
             contentColor = Color.White,
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
         )
@@ -361,7 +367,7 @@ private fun PlantRow(plant: Plant, onClick: () -> Unit) {
                 if (plant.scientific.isNotBlank()) {
                     Text(plant.scientific, fontSize = 13.sp, fontStyle = FontStyle.Italic, color = Muted)
                 }
-                Text(careLine(plant), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Green)
+                Text(careLine(plant), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Saffron)
             }
         }
     }
@@ -454,7 +460,7 @@ private fun ResultView(
             modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text(L(hi, "IDENTIFIED", "पहचाना गया"), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Green)
+            Text(L(hi, "IDENTIFIED", "पहचाना गया"), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Saffron)
             NameBlock(plant, hi, 30)
             LangToggle(hi, vm.translatingId == plant.id) { vm.chooseHindi(it) }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -471,7 +477,8 @@ private fun ResultView(
                 onClick = onMore,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, Green),
+                border = BorderStroke(1.dp, Saffron),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Saffron),
             ) {
                 Text(L(hi, "More info", "और जानकारी"), fontWeight = FontWeight.Bold)
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
@@ -644,8 +651,8 @@ private fun NameBlock(plant: Plant, hi: Boolean, titleSize: Int) {
             Text(plant.name, fontSize = titleSize.sp, fontWeight = FontWeight.ExtraBold, lineHeight = (titleSize + 6).sp)
             if (plant.localLine().isNotBlank()) {
                 Text(
-                    "Delhi/NCR: " + plant.localLine(),
-                    fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Green,
+                    plant.localLine(),
+                    fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Saffron,
                 )
             }
         }
@@ -656,10 +663,35 @@ private fun NameBlock(plant: Plant, hi: Boolean, titleSize: Int) {
 }
 
 @Composable
+private fun LangChip(selected: Boolean, text: String, onClick: () -> Unit) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(text, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal) },
+        leadingIcon = if (selected) {
+            { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
+        } else null,
+        colors = FilterChipDefaults.filterChipColors(
+            selectedContainerColor = Tonal,
+            selectedLabelColor = Ink,
+            selectedLeadingIconColor = Ink,
+            labelColor = Muted,
+        ),
+        border = FilterChipDefaults.filterChipBorder(
+            enabled = true,
+            selected = selected,
+            borderColor = Line,
+            selectedBorderColor = Saffron,
+            selectedBorderWidth = 1.dp,
+        ),
+    )
+}
+
+@Composable
 private fun LangToggle(hi: Boolean, busy: Boolean, onChange: (Boolean) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(selected = !hi, onClick = { onChange(false) }, label = { Text("English") })
-        FilterChip(selected = hi, onClick = { onChange(true) }, label = { Text("हिंदी") })
+        LangChip(!hi, "English") { onChange(false) }
+        LangChip(hi, "हिंदी") { onChange(true) }
         if (busy) {
             CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
             Text("अनुवाद हो रहा है…", fontSize = 13.sp, color = Muted)
@@ -746,7 +778,7 @@ private fun PlantForm(
             )
             OutlinedTextField(
                 value = localName, onValueChange = { localName = it },
-                label = { Text("Local name in Delhi/NCR (optional)") },
+                label = { Text("Local name (optional)") },
                 placeholder = { Text("e.g. Gudhal") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
@@ -799,7 +831,8 @@ private fun PlantForm(
                 onClick = onSecondary,
                 modifier = Modifier.weight(1f).height(52.dp),
                 shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, Green),
+                border = BorderStroke(1.dp, Saffron),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Saffron),
             ) { Text(secondaryLabel, fontWeight = FontWeight.Bold) }
             Button(
                 enabled = name.isNotBlank(),
