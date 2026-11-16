@@ -3,6 +3,7 @@ package com.pctesting.mygarden
 import android.app.Application
 import android.graphics.Color
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -86,6 +87,49 @@ class AppVm(app: Application) : AndroidViewModel(app) {
         screen = Screen.Garden
     }
 
+    /** Plant info shown in Hindi; remembered between launches. */
+    var hindi by mutableStateOf(settings.hindi)
+        private set
+    var translatingId by mutableStateOf<String?>(null)
+        private set
+
+    fun setHindi(on: Boolean) {
+        hindi = on
+        settings.hindi = on
+    }
+
+    /** Fetches the Hindi text for a plant once, then keeps it with the plant. */
+    fun translate(id: String) {
+        val plant = find(id) ?: return
+        if (plant.hindi.isNotEmpty() || translatingId != null) return
+        val key = settings.apiKey
+        if (key.isBlank()) {
+            notice = "Add your Anthropic API key in Settings to translate."
+            setHindi(false)
+            return
+        }
+        val model = settings.model
+        translatingId = id
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { ClaudeApi.translateToHindi(key, model, plant) }
+            translatingId = null
+            when (result) {
+                is TranslateResult.Done -> {
+                    if (isSaved(id)) {
+                        persist(plants.map { if (it.id == id) it.copy(hindi = result.hindi) else it })
+                    }
+                    val s = scan
+                    val p = s?.plant
+                    if (s != null && p != null && p.id == id) scan = s.copy(plant = p.copy(hindi = result.hindi))
+                }
+                is TranslateResult.Failed -> {
+                    notice = "Couldn't translate: ${result.message}"
+                    setHindi(false)
+                }
+            }
+        }
+    }
+
     fun update(plant: Plant) {
         persist(plants.map { if (it.id == plant.id) plant else it })
     }
@@ -120,6 +164,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val bars = SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
         enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
+        if (Build.VERSION.SDK_INT >= 29) window.decorView.isForceDarkAllowed = false
         setContent { App(vm) }
     }
 }

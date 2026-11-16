@@ -180,32 +180,34 @@ private fun TopBar(title: String, onBack: () -> Unit, actions: @Composable () ->
 }
 
 @Composable
-private fun StatCard(label: String, title: String, note: String, modifier: Modifier = Modifier) {
+private fun StatCard(label: String, title: String, note: String, hi: Boolean, modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier,
         color = Color.White,
+        contentColor = Ink,
         shape = RoundedCornerShape(18.dp),
         border = BorderStroke(1.dp, Line),
     ) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Muted)
-            Text(title.ifBlank { "Not set" }, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text(title.ifBlank { L(hi, "Not set", "तय नहीं") }, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             if (note.isNotBlank()) Text(note, fontSize = 13.sp, color = Muted)
         }
     }
 }
 
 @Composable
-private fun InfoCard(label: String, title: String, note: String) {
+private fun InfoCard(label: String, title: String, note: String, hi: Boolean) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = Color.White,
+        contentColor = Ink,
         shape = RoundedCornerShape(18.dp),
         border = BorderStroke(1.dp, Line),
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(label.uppercase(), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Muted)
-            Text(title.ifBlank { "Not set" }, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text(title.ifBlank { L(hi, "Not set", "तय नहीं") }, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             if (note.isNotBlank()) Text(note, fontSize = 14.sp, lineHeight = 20.sp, color = Muted)
         }
     }
@@ -262,7 +264,9 @@ private fun GardenScreen(vm: AppVm) {
 
     val shown = vm.plants.filter {
         query.isBlank() || it.name.contains(query, ignoreCase = true) ||
-            it.scientific.contains(query, ignoreCase = true)
+            it.scientific.contains(query, ignoreCase = true) ||
+            it.localName.contains(query, ignoreCase = true) ||
+            it.localNameHi.contains(query)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -342,6 +346,7 @@ private fun PlantRow(plant: Plant, onClick: () -> Unit) {
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         color = Color.White,
+        contentColor = Ink,
         shape = RoundedCornerShape(18.dp),
         border = BorderStroke(1.dp, Line),
     ) {
@@ -350,6 +355,9 @@ private fun PlantRow(plant: Plant, onClick: () -> Unit) {
             Spacer(Modifier.width(14.dp))
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(plant.name, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                if (plant.localLine().isNotBlank()) {
+                    Text(plant.localLine(), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Muted)
+                }
                 if (plant.scientific.isNotBlank()) {
                     Text(plant.scientific, fontSize = 13.sp, fontStyle = FontStyle.Italic, color = Muted)
                 }
@@ -389,6 +397,7 @@ private fun ScanScreen(vm: AppVm) {
         }
 
         plant != null -> ResultView(
+            vm = vm,
             plant = plant,
             onBack = { vm.discardScan() },
             onMore = { vm.screen = Screen.Details(plant.id) },
@@ -417,12 +426,15 @@ private fun ScanScreen(vm: AppVm) {
 
 @Composable
 private fun ResultView(
+    vm: AppVm,
     plant: Plant,
     onBack: () -> Unit,
     onMore: () -> Unit,
     onAdd: () -> Unit,
     onSkip: () -> Unit,
 ) {
+    val hi = vm.hindi
+    AutoTranslate(vm, plant)
     Column(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.fillMaxWidth().height(240.dp)) {
             PlantPhoto(plant.photo, 1024, Modifier.fillMaxSize())
@@ -430,6 +442,7 @@ private fun ResultView(
                 onClick = onBack,
                 shape = CircleShape,
                 color = Color.White,
+                contentColor = Ink,
                 modifier = Modifier.padding(12.dp).size(48.dp),
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -441,16 +454,18 @@ private fun ResultView(
             modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Column {
-                Text("IDENTIFIED", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Green)
-                Text(plant.name, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold)
-                if (plant.scientific.isNotBlank()) {
-                    Text(plant.scientific, fontSize = 15.sp, fontStyle = FontStyle.Italic, color = Muted)
-                }
-            }
+            Text(L(hi, "IDENTIFIED", "पहचाना गया"), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Green)
+            NameBlock(plant, hi, 30)
+            LangToggle(hi, vm.translatingId == plant.id) { vm.setHindi(it) }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                StatCard("Sunlight", plant.sunlight, plant.sunlightNote, Modifier.weight(1f))
-                StatCard("Watering", waterShort(plant.waterDays), plant.waterNote, Modifier.weight(1f))
+                StatCard(
+                    L(hi, "Sunlight", "धूप"), plant.show("sunlight", hi), plant.show("sunlightNote", hi),
+                    hi, Modifier.weight(1f),
+                )
+                StatCard(
+                    L(hi, "Watering", "पानी"), waterShort(plant.waterDays, hi), plant.show("waterNote", hi),
+                    hi, Modifier.weight(1f),
+                )
             }
             OutlinedButton(
                 onClick = onMore,
@@ -458,37 +473,44 @@ private fun ResultView(
                 shape = RoundedCornerShape(16.dp),
                 border = BorderStroke(1.dp, Green),
             ) {
-                Text("More info", fontWeight = FontWeight.Bold)
+                Text(L(hi, "More info", "और जानकारी"), fontWeight = FontWeight.Bold)
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
             }
             Text(
-                "Fertiliser, blooming season and propagation",
+                L(hi, "Fertiliser, blooming season and propagation", "खाद, फूल आने का मौसम और नए पौधे लगाने का तरीका"),
                 fontSize = 13.sp, color = Muted, textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
         Surface(
             color = Color.White,
+            contentColor = Ink,
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
             border = BorderStroke(1.dp, Line),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column {
-                    Text("Add this plant to your garden?", fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
-                    Text("Skip it if this plant isn't yours.", fontSize = 14.sp, color = Muted)
+                    Text(
+                        L(hi, "Add this plant to your garden?", "क्या यह पौधा अपने बगीचे में जोड़ें?"),
+                        fontSize = 18.sp, fontWeight = FontWeight.ExtraBold,
+                    )
+                    Text(
+                        L(hi, "Skip it if this plant isn't yours.", "अगर यह पौधा आपका नहीं है, तो छोड़ दें।"),
+                        fontSize = 14.sp, color = Muted,
+                    )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     FilledTonalButton(
                         onClick = onSkip,
                         modifier = Modifier.weight(1f).height(52.dp),
                         shape = RoundedCornerShape(16.dp),
-                    ) { Text("Not mine", fontWeight = FontWeight.Bold) }
+                    ) { Text(L(hi, "Not mine", "मेरा नहीं"), fontWeight = FontWeight.Bold) }
                     Button(
                         onClick = onAdd,
                         modifier = Modifier.weight(1f).height(52.dp),
                         shape = RoundedCornerShape(16.dp),
-                    ) { Text("Add to garden", fontWeight = FontWeight.Bold) }
+                    ) { Text(L(hi, "Add to garden", "बगीचे में जोड़ें"), fontWeight = FontWeight.Bold) }
                 }
             }
         }
@@ -504,6 +526,8 @@ private fun DetailsScreen(vm: AppVm, id: String) {
         LaunchedEffect(Unit) { vm.screen = Screen.Garden }
         return
     }
+    val hi = vm.hindi
+    AutoTranslate(vm, plant)
     val saved = vm.isSaved(id)
     var confirmDelete by remember { mutableStateOf(false) }
 
@@ -523,7 +547,7 @@ private fun DetailsScreen(vm: AppVm, id: String) {
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        TopBar("Plant details", onBack = { goBack(vm) }) {
+        TopBar(L(hi, "Plant details", "पौधे की जानकारी"), onBack = { goBack(vm) }) {
             if (saved) {
                 IconButton(onClick = { vm.screen = Screen.Edit(id) }) {
                     Icon(Icons.Filled.Edit, contentDescription = "Edit details")
@@ -541,24 +565,38 @@ private fun DetailsScreen(vm: AppVm, id: String) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 PlantPhoto(plant.photo, 512, Modifier.size(84.dp).clip(RoundedCornerShape(16.dp)))
                 Spacer(Modifier.width(14.dp))
-                Column {
-                    Text(plant.name, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold)
-                    if (plant.scientific.isNotBlank()) {
-                        Text(plant.scientific, fontSize = 14.sp, fontStyle = FontStyle.Italic, color = Muted)
-                    }
-                }
+                NameBlock(plant, hi, 26)
             }
+            LangToggle(hi, vm.translatingId == plant.id) { vm.setHindi(it) }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                StatCard("Sunlight", plant.sunlight, plant.sunlightNote, Modifier.weight(1f))
-                StatCard("Watering", waterShort(plant.waterDays), plant.waterNote, Modifier.weight(1f))
+                StatCard(
+                    L(hi, "Sunlight", "धूप"), plant.show("sunlight", hi), plant.show("sunlightNote", hi),
+                    hi, Modifier.weight(1f),
+                )
+                StatCard(
+                    L(hi, "Watering", "पानी"), waterShort(plant.waterDays, hi), plant.show("waterNote", hi),
+                    hi, Modifier.weight(1f),
+                )
             }
-            InfoCard("Fertiliser", plant.fertiliser, plant.fertiliserNote)
-            if (plant.flowering) InfoCard("Blooming", plant.blooming, plant.bloomingNote)
-            else InfoCard("Blooming", "Not a flowering plant", "")
-            InfoCard("Propagation", plant.propagation, plant.propagationNote)
+            InfoCard(L(hi, "Fertiliser", "खाद"), plant.show("fertiliser", hi), plant.show("fertiliserNote", hi), hi)
+            if (plant.flowering) {
+                InfoCard(L(hi, "Blooming", "फूल आने का मौसम"), plant.show("blooming", hi), plant.show("bloomingNote", hi), hi)
+            } else {
+                InfoCard(
+                    L(hi, "Blooming", "फूल आने का मौसम"),
+                    L(hi, "Not a flowering plant", "इस पौधे पर फूल नहीं आते"), "", hi,
+                )
+            }
+            InfoCard(
+                L(hi, "Propagation", "नए पौधे कैसे लगाएँ"),
+                plant.show("propagation", hi), plant.show("propagationNote", hi), hi,
+            )
             Text(
-                if (saved) "Care info may be AI-generated. Tap the pencil to correct anything."
-                else "Care info is AI-generated. You can correct it after adding the plant.",
+                when {
+                    hi -> "यह जानकारी AI से बनी है और गलत हो सकती है।"
+                    saved -> "Care info may be AI-generated. Tap the pencil to correct anything."
+                    else -> "Care info is AI-generated. You can correct it after adding the plant."
+                },
                 fontSize = 12.sp, color = Muted, textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
             )
@@ -568,7 +606,63 @@ private fun DetailsScreen(vm: AppVm, id: String) {
                 onClick = { vm.addToGarden(plant) },
                 modifier = Modifier.fillMaxWidth().padding(20.dp).height(52.dp),
                 shape = RoundedCornerShape(16.dp),
-            ) { Text("Add to garden", fontWeight = FontWeight.Bold) }
+            ) { Text(L(hi, "Add to garden", "बगीचे में जोड़ें"), fontWeight = FontWeight.Bold) }
+        }
+    }
+}
+
+// ---------- Language and names ----------
+
+private fun L(hi: Boolean, en: String, hindi: String) = if (hi) hindi else en
+
+/** A plant field in the chosen language, falling back to English until translated. */
+private fun Plant.show(key: String, hi: Boolean): String {
+    val en = field(key)
+    return if (hi) hindi[key]?.takeIf { it.isNotBlank() } ?: en else en
+}
+
+private fun Plant.localLine(): String = when {
+    localName.isNotBlank() && localNameHi.isNotBlank() -> "$localName ($localNameHi)"
+    else -> localName.ifBlank { localNameHi }
+}
+
+@Composable
+private fun AutoTranslate(vm: AppVm, plant: Plant) {
+    LaunchedEffect(vm.hindi, plant.id, plant.hindi.isEmpty()) {
+        if (vm.hindi && plant.hindi.isEmpty()) vm.translate(plant.id)
+    }
+}
+
+@Composable
+private fun NameBlock(plant: Plant, hi: Boolean, titleSize: Int) {
+    val hiTitle = plant.localNameHi.ifBlank { plant.hindi["name"].orEmpty() }
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        if (hi && hiTitle.isNotBlank()) {
+            Text(hiTitle, fontSize = titleSize.sp, fontWeight = FontWeight.ExtraBold, lineHeight = (titleSize + 8).sp)
+            Text(plant.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Muted)
+        } else {
+            Text(plant.name, fontSize = titleSize.sp, fontWeight = FontWeight.ExtraBold, lineHeight = (titleSize + 6).sp)
+            if (plant.localLine().isNotBlank()) {
+                Text(
+                    "Delhi/NCR: " + plant.localLine(),
+                    fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Green,
+                )
+            }
+        }
+        if (plant.scientific.isNotBlank()) {
+            Text(plant.scientific, fontSize = 14.sp, fontStyle = FontStyle.Italic, color = Muted)
+        }
+    }
+}
+
+@Composable
+private fun LangToggle(hi: Boolean, busy: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(selected = !hi, onClick = { onChange(false) }, label = { Text("English") })
+        FilterChip(selected = hi, onClick = { onChange(true) }, label = { Text("हिंदी") })
+        if (busy) {
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+            Text("अनुवाद हो रहा है…", fontSize = 13.sp, color = Muted)
         }
     }
 }
@@ -609,6 +703,7 @@ private fun PlantForm(
     onSecondary: () -> Unit,
 ) {
     var name by rememberSaveable(initial.id) { mutableStateOf(initial.name) }
+    var localName by rememberSaveable(initial.id) { mutableStateOf(initial.localName) }
     var sunlight by rememberSaveable(initial.id) { mutableStateOf(initial.sunlight) }
     var water by rememberSaveable(initial.id) {
         mutableStateOf(if (initial.waterDays > 0) initial.waterDays.toString() else "")
@@ -647,6 +742,13 @@ private fun PlantForm(
             OutlinedTextField(
                 value = name, onValueChange = { name = it },
                 label = { Text("Plant name") }, singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = localName, onValueChange = { localName = it },
+                label = { Text("Local name in Delhi/NCR (optional)") },
+                placeholder = { Text("e.g. Gudhal") },
+                singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
             Text("Sunlight", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Muted)
@@ -704,9 +806,11 @@ private fun PlantForm(
                 onClick = {
                     val days = water.toIntOrNull() ?: 0
                     // A note written for the old value is dropped when that value is changed.
-                    onPrimary(
+                    val edited =
                         initial.copy(
                             name = name.trim(),
+                            localName = localName.trim(),
+                            localNameHi = if (localName.trim() == initial.localName) initial.localNameHi else "",
                             sunlight = sunlight,
                             sunlightNote = if (sunlight == initial.sunlight) initial.sunlightNote else "",
                             waterDays = days,
@@ -719,7 +823,8 @@ private fun PlantForm(
                             propagation = propagation.trim(),
                             propagationNote = if (propagation.trim() == initial.propagation) initial.propagationNote else "",
                         )
-                    )
+                    // Any change makes the saved Hindi text out of date; it is fetched again when needed.
+                    onPrimary(if (edited == initial) initial else edited.copy(hindi = emptyMap()))
                 },
                 modifier = Modifier.weight(1f).height(52.dp),
                 shape = RoundedCornerShape(16.dp),

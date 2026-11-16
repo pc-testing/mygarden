@@ -26,6 +26,8 @@ data class Plant(
     val id: String = UUID.randomUUID().toString(),
     val name: String = "",
     val scientific: String = "",
+    val localName: String = "",
+    val localNameHi: String = "",
     val photo: String = "",
     val sunlight: String = "",
     val sunlightNote: String = "",
@@ -39,6 +41,8 @@ data class Plant(
     val propagation: String = "",
     val propagationNote: String = "",
     val addedAt: Long = System.currentTimeMillis(),
+    /** Hindi version of the text fields, keyed by field name; empty until translated. */
+    val hindi: Map<String, String> = emptyMap(),
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", id).put("name", name).put("scientific", scientific).put("photo", photo)
@@ -48,6 +52,8 @@ data class Plant(
         .put("flowering", flowering).put("blooming", blooming).put("bloomingNote", bloomingNote)
         .put("propagation", propagation).put("propagationNote", propagationNote)
         .put("addedAt", addedAt)
+        .put("localName", localName).put("localNameHi", localNameHi)
+        .put("hindi", JSONObject(hindi as Map<*, *>))
 
     companion object {
         fun fromJson(o: JSONObject) = Plant(
@@ -67,6 +73,11 @@ data class Plant(
             propagation = o.optString("propagation"),
             propagationNote = o.optString("propagationNote"),
             addedAt = o.optLong("addedAt", System.currentTimeMillis()),
+            localName = o.optString("localName"),
+            localNameHi = o.optString("localNameHi"),
+            hindi = o.optJSONObject("hindi")?.let { h ->
+                h.keys().asSequence().associateWith { h.optString(it) }
+            } ?: emptyMap(),
         )
     }
 }
@@ -77,10 +88,10 @@ fun waterLabel(days: Int): String = when {
     else -> "Water every $days days"
 }
 
-fun waterShort(days: Int): String = when {
-    days <= 0 -> "Not set"
-    days == 1 -> "Daily"
-    else -> "Every $days days"
+fun waterShort(days: Int, hindi: Boolean = false): String = when {
+    days <= 0 -> if (hindi) "तय नहीं" else "Not set"
+    days == 1 -> if (hindi) "रोज़" else "Daily"
+    else -> if (hindi) "हर $days दिन" else "Every $days days"
 }
 
 /** The garden, kept as one JSON file in the app's private storage. */
@@ -163,6 +174,13 @@ class SettingsStore(context: Context) {
         get() = prefs.getString("model", null)?.takeIf { it.isNotBlank() } ?: DEFAULT_MODEL
         set(value) {
             prefs.edit().putString("model", value.trim()).apply()
+        }
+
+    /** Show plant info in Hindi. */
+    var hindi: Boolean
+        get() = prefs.getBoolean("hindi", false)
+        set(value) {
+            prefs.edit().putBoolean("hindi", value).apply()
         }
 
     companion object {
