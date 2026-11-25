@@ -1,5 +1,5 @@
 <resources>
-    <color name="ic_bg">#1F2F5C</color>
+    <color name="ic_bg">#1F6B3A</color>
     <style name="Theme.MyGarden" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">#F5F6F8</item>
     </style>

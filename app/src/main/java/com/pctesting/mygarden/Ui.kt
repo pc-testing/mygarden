@@ -8,6 +8,16 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -129,6 +139,7 @@ fun App(vm: AppVm) {
             }
         }
         BackHandler(enabled = vm.screen != Screen.Garden) { goBack(vm) }
+        vm.viewPhoto?.let { path -> PhotoViewer(path) { vm.viewPhoto = null } }
         vm.notice?.let { message ->
             AlertDialog(
                 onDismissRequest = { vm.notice = null },
@@ -324,7 +335,11 @@ private fun GardenScreen(vm: AppVm) {
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     items(shown, key = { it.id }) { plant ->
-                        PlantRow(plant) { vm.screen = Screen.Details(plant.id) }
+                        PlantRow(
+                            plant,
+                            onPhoto = { vm.viewPhoto = plant.photo },
+                            onClick = { vm.screen = Screen.Details(plant.id) },
+                        )
                     }
                 }
             }
@@ -347,7 +362,7 @@ private fun GardenScreen(vm: AppVm) {
 }
 
 @Composable
-private fun PlantRow(plant: Plant, onClick: () -> Unit) {
+private fun PlantRow(plant: Plant, onPhoto: () -> Unit, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
@@ -357,7 +372,11 @@ private fun PlantRow(plant: Plant, onClick: () -> Unit) {
         border = BorderStroke(1.dp, Line),
     ) {
         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            PlantPhoto(plant.photo, 256, Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)))
+            PlantPhoto(
+                plant.photo, 256,
+                Modifier.size(72.dp).clip(RoundedCornerShape(12.dp))
+                    .clickable(enabled = plant.photo.isNotBlank(), onClickLabel = "View photo") { onPhoto() },
+            )
             Spacer(Modifier.width(14.dp))
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(plant.name, fontSize = 17.sp, fontWeight = FontWeight.Bold)
@@ -396,7 +415,17 @@ private fun ScanScreen(vm: AppVm) {
             ) {
                 CircularProgressIndicator()
                 Spacer(Modifier.height(20.dp))
-                Text("Identifying your plant…", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    if (s.closerLook) "Taking a closer look…" else "Identifying your plant…",
+                    fontSize = 18.sp, fontWeight = FontWeight.Bold,
+                )
+                if (s.closerLook) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "This one is tricky, so a stronger model is checking it.",
+                        fontSize = 14.sp, color = Muted, textAlign = TextAlign.Center,
+                    )
+                }
                 Spacer(Modifier.height(12.dp))
                 TextButton(onClick = { vm.discardScan() }) { Text("Cancel") }
             }
@@ -405,6 +434,7 @@ private fun ScanScreen(vm: AppVm) {
         plant != null -> ResultView(
             vm = vm,
             plant = plant,
+            unsure = s.unsure,
             onBack = { vm.discardScan() },
             onMore = { vm.screen = Screen.Details(plant.id) },
             onAdd = { vm.addToGarden(plant) },
@@ -434,6 +464,7 @@ private fun ScanScreen(vm: AppVm) {
 private fun ResultView(
     vm: AppVm,
     plant: Plant,
+    unsure: Boolean,
     onBack: () -> Unit,
     onMore: () -> Unit,
     onAdd: () -> Unit,
@@ -460,8 +491,20 @@ private fun ResultView(
             modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text(L(hi, "IDENTIFIED", "पहचाना गया"), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Saffron)
+            Text(
+                if (unsure) L(hi, "BEST GUESS", "अनुमान") else L(hi, "IDENTIFIED", "पहचाना गया"),
+                fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Saffron,
+            )
             NameBlock(plant, hi, 30)
+            if (unsure) {
+                Text(
+                    L(
+                        hi, "Not fully sure. Compare with your plant before adding it.",
+                        "पूरी तरह पक्का नहीं है। जोड़ने से पहले अपने पौधे से मिलान कर लें।",
+                    ),
+                    fontSize = 14.sp, color = Muted,
+                )
+            }
             LangToggle(hi, vm.translatingId == plant.id) { vm.chooseHindi(it) }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 StatCard(
@@ -570,7 +613,13 @@ private fun DetailsScreen(vm: AppVm, id: String) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                PlantPhoto(plant.photo, 512, Modifier.size(84.dp).clip(RoundedCornerShape(16.dp)))
+                PlantPhoto(
+                    plant.photo, 256,
+                    Modifier.size(84.dp).clip(RoundedCornerShape(16.dp))
+                        .clickable(enabled = plant.photo.isNotBlank(), onClickLabel = "View photo") {
+                            vm.viewPhoto = plant.photo
+                        },
+                )
                 Spacer(Modifier.width(14.dp))
                 NameBlock(plant, hi, 26)
             }
@@ -872,6 +921,14 @@ private fun PlantForm(
 private fun SettingsScreen(vm: AppVm) {
     var key by remember { mutableStateOf(vm.settings.apiKey) }
     var model by remember { mutableStateOf(vm.settings.model) }
+    var strong by remember { mutableStateOf(vm.settings.strongModel) }
+
+    val saveBackup = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri -> if (uri != null) vm.exportBackup(uri) }
+    val restoreBackup = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.importBackup(uri)
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopBar("Settings", onBack = { vm.screen = Screen.Garden })
@@ -880,9 +937,10 @@ private fun SettingsScreen(vm: AppVm) {
                 .padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            SectionTitle("Anthropic API")
             OutlinedTextField(
                 value = key, onValueChange = { key = it },
-                label = { Text("Anthropic API key") },
+                label = { Text("API key") },
                 placeholder = { Text("sk-ant-…") },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
@@ -890,27 +948,145 @@ private fun SettingsScreen(vm: AppVm) {
                 modifier = Modifier.fillMaxWidth(),
             )
             Text(
-                "The key is stored encrypted on this phone and is only sent to Anthropic when you scan a plant.",
+                "Stored encrypted on this phone and only sent to Anthropic when you scan a plant.",
                 fontSize = 13.sp, color = Muted,
             )
             OutlinedTextField(
                 value = model, onValueChange = { model = it },
-                label = { Text("Model") }, singleLine = true,
+                label = { Text("Main model") }, singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = strong, onValueChange = { strong = it },
+                label = { Text("Model for tricky plants") }, singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
             Text(
-                "Default is ${SettingsStore.DEFAULT_MODEL}, run at low effort to keep token use down.",
+                "The main model checks every photo at low effort. If it isn't sure, the photo is " +
+                    "checked again by the model for tricky plants.",
                 fontSize = 13.sp, color = Muted,
             )
+            Button(
+                onClick = {
+                    vm.settings.apiKey = key
+                    vm.settings.model = model.ifBlank { SettingsStore.DEFAULT_MODEL }
+                    vm.settings.strongModel = strong.ifBlank { SettingsStore.DEFAULT_STRONG_MODEL }
+                    vm.screen = Screen.Garden
+                },
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(16.dp),
+            ) { Text("Save settings", fontWeight = FontWeight.Bold) }
+
+            Spacer(Modifier.height(12.dp))
+            SectionTitle("Backup")
+            Text(
+                "Save your garden (plants and photos) to a file on this phone, in Downloads › MyGarden. " +
+                    "After reinstalling the app, tap Restore and pick that file. Your API key is not included.",
+                fontSize = 13.sp, color = Muted,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        try {
+                            restoreBackup.launch(arrayOf("application/zip", "application/octet-stream"))
+                        } catch (e: Exception) {
+                            vm.notice = "Couldn't open the file picker on this phone."
+                        }
+                    },
+                    modifier = Modifier.weight(1f).height(52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, Saffron),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Saffron),
+                ) { Text("Restore", fontWeight = FontWeight.Bold) }
+                Button(
+                    enabled = vm.plants.isNotEmpty(),
+                    onClick = {
+                        val date = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                            .format(java.util.Date())
+                        val name = "mygarden-backup-$date.zip"
+                        if (android.os.Build.VERSION.SDK_INT >= 29) {
+                            vm.saveBackupToPhone(name)
+                        } else {
+                            // Older Android: let the user pick where on the phone to save it.
+                            try {
+                                saveBackup.launch(name)
+                            } catch (e: Exception) {
+                                vm.notice = "Couldn't open the file picker on this phone."
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f).height(52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) { Text("Save backup", fontWeight = FontWeight.Bold) }
+            }
+            Spacer(Modifier.height(20.dp))
         }
-        Button(
-            onClick = {
-                vm.settings.apiKey = key
-                vm.settings.model = model.ifBlank { SettingsStore.DEFAULT_MODEL }
-                vm.screen = Screen.Garden
-            },
-            modifier = Modifier.fillMaxWidth().padding(20.dp).height(52.dp),
-            shape = RoundedCornerShape(16.dp),
-        ) { Text("Save", fontWeight = FontWeight.Bold) }
+    }
+}
+
+@Composable
+private fun SectionTitle(text: String) {
+    Text(
+        text.uppercase(), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Muted,
+        modifier = Modifier.padding(top = 4.dp),
+    )
+}
+
+// ---------- Full-screen photo ----------
+
+@Composable
+private fun PhotoViewer(path: String, onClose: () -> Unit) {
+    Dialog(
+        onDismissRequest = onClose,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        val bitmap by produceState<ImageBitmap?>(initialValue = null, path) {
+            value = withContext(Dispatchers.IO) { Images.load(path, 1024)?.asImageBitmap() }
+        }
+        var scale by remember { mutableFloatStateOf(1f) }
+        var offset by remember { mutableStateOf(Offset.Zero) }
+        Box(
+            modifier = Modifier.fillMaxSize().background(Color.Black)
+                .pointerInput(Unit) {
+                    detectTransformGestures { _, pan, zoom, _ ->
+                        scale = (scale * zoom).coerceIn(1f, 5f)
+                        offset = if (scale == 1f) Offset.Zero else offset + pan
+                    }
+                }
+                .pointerInput(Unit) {
+                    detectTapGestures(onDoubleTap = {
+                        if (scale > 1f) {
+                            scale = 1f
+                            offset = Offset.Zero
+                        } else scale = 2.5f
+                    })
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            val b = bitmap
+            if (b == null) {
+                CircularProgressIndicator(color = Color.White)
+            } else {
+                Image(
+                    bitmap = b,
+                    contentDescription = "Plant photo",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize().graphicsLayer(
+                        scaleX = scale, scaleY = scale, translationX = offset.x, translationY = offset.y,
+                    ),
+                )
+            }
+            Surface(
+                onClick = onClose,
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = 0.55f),
+                contentColor = Color.White,
+                modifier = Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(12.dp).size(48.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close photo")
+                }
+            }
+        }
     }
 }

@@ -7,7 +7,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 sealed interface IdentifyResult {
-    data class Found(val plant: Plant) : IdentifyResult
+    data class Found(val plant: Plant, val confidence: String) : IdentifyResult
     data object Unknown : IdentifyResult
     data class Failed(val message: String) : IdentifyResult
 }
@@ -47,6 +47,7 @@ object ClaudeApi {
         Identify the plant in this photo and give care advice for a home gardener in $REGION.
         Reply with one JSON object only, no other text, with exactly these keys:
         "identified": boolean, false if there is no plant or you cannot tell which plant it is
+        "confidence": one of "high", "medium", "low", how sure you are which plant this is
         "common_name": string, the English common name
         "scientific_name": string
         "local_name": string, the name most people in $REGION call this plant, in Latin letters (for example "Gudhal" for hibiscus); empty if there is no local name
@@ -70,8 +71,11 @@ object ClaudeApi {
             "common Hindi name if it has one. Reply with one JSON object only, no other text, " +
             "with the same keys.\n\n"
 
-    /** Blocking; call from a background thread. */
-    fun identify(apiKey: String, model: String, photo: File): IdentifyResult {
+    /**
+     * Blocking; call from a background thread.
+     * [careful] lets the model think before answering (used for the stronger second look).
+     */
+    fun identify(apiKey: String, model: String, photo: File, careful: Boolean): IdentifyResult {
         val content = JSONArray()
             .put(
                 JSONObject().put("type", "image").put(
@@ -82,12 +86,14 @@ object ClaudeApi {
                 )
             )
             .put(JSONObject().put("type", "text").put("text", IDENTIFY_PROMPT))
-        val reply = ask(apiKey, model, content, leanMaxTokens = 900)
+        val reply = if (careful) ask(apiKey, model, content, leanMaxTokens = 6000, thinking = true)
+        else ask(apiKey, model, content, leanMaxTokens = 900)
         reply.error?.let { return IdentifyResult.Failed(it) }
         val o = jsonIn(reply.text ?: "") ?: return IdentifyResult.Unknown
         val name = o.optString("common_name").trim()
         if (!o.optBoolean("identified", false) || name.isEmpty()) return IdentifyResult.Unknown
         val flowering = o.optBoolean("is_flowering", false)
+        val confidence = o.optString("confidence").trim().lowercase().ifEmpty { "medium" }
         return IdentifyResult.Found(
             Plant(
                 name = name,
@@ -105,7 +111,8 @@ object ClaudeApi {
                 bloomingNote = if (flowering) o.optString("blooming_note").trim() else "",
                 propagation = o.optString("propagation").trim(),
                 propagationNote = o.optString("propagation_note").trim(),
-            )
+            ),
+            confidence,
         )
     }
 
@@ -133,13 +140,15 @@ object ClaudeApi {
 
     private class Reply(val text: String?, val error: String?)
 
-    private fun ask(apiKey: String, model: String, content: JSONArray, leanMaxTokens: Int): Reply {
+    private fun ask(
+        apiKey: String, model: String, content: JSONArray, leanMaxTokens: Int, thinking: Boolean = false,
+    ): Reply {
         return try {
-            // Low effort with thinking off keeps token use to a minimum.
-            var response = post(apiKey, body(model, content, leanMaxTokens, lean = true))
+            // Low effort keeps token use down; thinking is off unless asked for.
+            var response = post(apiKey, body(model, content, leanMaxTokens, lean = true, thinking = thinking))
             if (response.first == 400) {
                 // If the chosen model rejects those options, retry with a plain request.
-                response = post(apiKey, body(model, content, 4000, lean = false))
+                response = post(apiKey, body(model, content, 6000, lean = false))
             }
             val (code, text) = response
             if (code !in 200..299) Reply(null, errorMessage(code, text)) else Reply(textOf(text), null)
@@ -150,13 +159,15 @@ object ClaudeApi {
         }
     }
 
-    private fun body(model: String, content: JSONArray, maxTokens: Int, lean: Boolean): String {
+    private fun body(
+        model: String, content: JSONArray, maxTokens: Int, lean: Boolean, thinking: Boolean = false,
+    ): String {
         val o = JSONObject()
             .put("model", model)
             .put("max_tokens", maxTokens)
             .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", content)))
         if (lean) {
-            o.put("thinking", JSONObject().put("type", "disabled"))
+            if (!thinking) o.put("thinking", JSONObject().put("type", "disabled"))
             o.put("output_config", JSONObject().put("effort", "low"))
         }
         return o.toString()

@@ -13,12 +13,17 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
+import java.io.OutputStream
 import java.security.KeyStore
 import java.util.UUID
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
 
 val SUNLIGHT_OPTIONS = listOf("Full sun", "Partial shade", "Indirect light", "Low light")
 
@@ -176,6 +181,13 @@ class SettingsStore(context: Context) {
             prefs.edit().putString("model", value.trim()).apply()
         }
 
+    /** Used for a second look when the main model can't identify a plant or isn't sure. */
+    var strongModel: String
+        get() = prefs.getString("strong_model", null)?.takeIf { it.isNotBlank() } ?: DEFAULT_STRONG_MODEL
+        set(value) {
+            prefs.edit().putString("strong_model", value.trim()).apply()
+        }
+
     /** Show plant info in Hindi. */
     var hindi: Boolean
         get() = prefs.getBoolean("hindi", false)
@@ -185,12 +197,24 @@ class SettingsStore(context: Context) {
 
     companion object {
         const val DEFAULT_MODEL = "claude-haiku-5-5"
+        const val DEFAULT_STRONG_MODEL = "claude-sonnet-5-5"
         private const val ALIAS = "mygarden_api_key"
     }
 }
 
 object Images {
+    /** Full photo: sharp enough to identify the plant and view full screen, ~100–150 KB. */
     private const val MAX_SIDE = 1024
+    private const val QUALITY = 75
+
+    /** List thumbnail: ~10–20 KB, so the garden list loads quickly. */
+    private const val THUMB_SIDE = 320
+    private const val THUMB_QUALITY = 70
+
+    /** Decoded pictures kept in memory, so scrolling back doesn't decode them again. */
+    private val cache = object : android.util.LruCache<String, Bitmap>(16 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: Bitmap) = value.byteCount
+    }
 
     /** Copies a picked or captured photo into private storage, upright and scaled down. */
     fun importPhoto(context: Context, uri: Uri): File? = try {
@@ -228,22 +252,134 @@ object Images {
             val dir = File(context.filesDir, "photos").apply { mkdirs() }
             val out = File(dir, UUID.randomUUID().toString() + ".jpg")
             val finalBmp: Bitmap = bmp
-            FileOutputStream(out).use { finalBmp.compress(Bitmap.CompressFormat.JPEG, 85, it) }
+            FileOutputStream(out).use { finalBmp.compress(Bitmap.CompressFormat.JPEG, QUALITY, it) }
+            saveThumb(finalBmp, thumbFile(out.absolutePath))
             out
         }
     } catch (e: Exception) {
         null
     }
 
-    fun load(path: String, maxSide: Int): Bitmap? = try {
+    private fun thumbFile(path: String) = File(path.removeSuffix(".jpg") + "_t.jpg")
+
+    private fun saveThumb(full: Bitmap, file: File) {
+        try {
+            val scale = THUMB_SIDE.toFloat() / maxOf(full.width, full.height)
+            val small = if (scale < 1f) Bitmap.createScaledBitmap(
+                full, (full.width * scale).toInt().coerceAtLeast(1),
+                (full.height * scale).toInt().coerceAtLeast(1), true,
+            ) else full
+            FileOutputStream(file).use { small.compress(Bitmap.CompressFormat.JPEG, THUMB_QUALITY, it) }
+        } catch (e: Exception) {
+            file.delete()
+        }
+    }
+
+    /**
+     * Loads a photo for showing. Small sizes come from the thumbnail file, which is made
+     * on first use for photos saved before thumbnails existed (or restored from a backup).
+     */
+    fun load(path: String, maxSide: Int): Bitmap? {
+        if (path.isBlank()) return null
+        val key = "$path@$maxSide"
+        cache.get(key)?.let { return it }
+        val bmp = try {
+            if (maxSide <= THUMB_SIDE) {
+                val thumb = thumbFile(path)
+                if (!thumb.isFile) decodeSampled(path, MAX_SIDE)?.let { saveThumb(it, thumb) }
+                decodeSampled(if (thumb.isFile) thumb.absolutePath else path, maxSide)
+            } else {
+                decodeSampled(path, maxSide)
+            }
+        } catch (e: Exception) {
+            null
+        }
+        if (bmp != null) cache.put(key, bmp)
+        return bmp
+    }
+
+    private fun decodeSampled(path: String, maxSide: Int): Bitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(path, bounds)
+        if (bounds.outWidth <= 0) return null
         var sample = 1
         while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxSide) sample *= 2
-        BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })
-    } catch (e: Exception) {
-        null
+        return BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })
+    }
+
+    /** Deletes a photo and its thumbnail. */
+    fun delete(path: String) {
+        if (path.isBlank()) return
+        File(path).delete()
+        thumbFile(path).delete()
+        cache.snapshot().keys.filter { it.startsWith("$path@") }.forEach { cache.remove(it) }
     }
 
     fun base64(file: File): String = Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
+}
+
+/**
+ * Backup file: a zip with plants.json and a photos/ folder.
+ * The API key is not included.
+ */
+object Backup {
+    private const val INDEX = "plants.json"
+    private const val PHOTOS = "photos/"
+
+    fun write(plants: List<Plant>, out: OutputStream) {
+        ZipOutputStream(out).use { zip ->
+            val arr = JSONArray()
+            plants.forEach { p ->
+                val photo = File(p.photo)
+                val rel = if (p.photo.isNotBlank() && photo.isFile) PHOTOS + photo.name else ""
+                arr.put(p.copy(photo = rel).toJson())
+                if (rel.isNotEmpty()) {
+                    zip.putNextEntry(ZipEntry(rel))
+                    photo.inputStream().use { it.copyTo(zip) }
+                    zip.closeEntry()
+                }
+            }
+            zip.putNextEntry(ZipEntry(INDEX))
+            zip.write(JSONObject().put("app", "mygarden").put("version", 1).put("plants", arr)
+                .toString().toByteArray(Charsets.UTF_8))
+            zip.closeEntry()
+        }
+    }
+
+    /** Returns the plants in the backup with their photos copied in, or null if it isn't a backup. */
+    fun read(context: Context, input: InputStream): List<Plant>? {
+        val dir = File(context.filesDir, "photos").apply { mkdirs() }
+        var index: String? = null
+        val photos = mutableMapOf<String, File>()
+        ZipInputStream(input).use { zip ->
+            while (true) {
+                val entry = zip.nextEntry ?: break
+                when {
+                    entry.isDirectory -> Unit
+                    entry.name == INDEX -> index = zip.readBytes().toString(Charsets.UTF_8)
+                    entry.name.startsWith(PHOTOS) -> {
+                        // Use only the file name, so a crafted entry can't write outside the folder.
+                        val name = File(entry.name).name
+                        if (name.isNotBlank()) {
+                            val f = File(dir, name)
+                            FileOutputStream(f).use { zip.copyTo(it) }
+                            photos[PHOTOS + name] = f
+                        }
+                    }
+                }
+                zip.closeEntry()
+            }
+        }
+        val o = try {
+            JSONObject(index ?: return null)
+        } catch (e: Exception) {
+            return null
+        }
+        if (o.optString("app") != "mygarden") return null
+        val arr = o.optJSONArray("plants") ?: return null
+        return (0 until arr.length()).map { i ->
+            val p = Plant.fromJson(arr.getJSONObject(i))
+            p.copy(photo = photos[p.photo]?.absolutePath ?: "")
+        }
+    }
 }
